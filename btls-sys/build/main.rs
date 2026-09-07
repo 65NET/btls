@@ -476,8 +476,10 @@ fn ensure_patches_applied(config: &Config) -> io::Result<()> {
     println!("cargo:warning=applying loongarch patch to boringssl");
     apply_patch(config, "boringssl-loongarch.patch")?;
 
-    println!("cargo:warning=applying windows cross compile patch to boringssl");
-    apply_patch(config, "boringssl-windows.patch")?;
+    // boringssl-windows.patch is gone: upstream's own fiat-p256 ASM guard is now
+    // `(__ELF__ || __APPLE__) && OPENSSL_X86_64 && !OPENSSL_NANOLIBC`, which
+    // already excludes MinGW, so the patch no longer applies and is no longer
+    // needed.
 
     if config.features.underscore_wildcards {
         println!("cargo:warning=applying underscore wildcards patch to boringssl");
