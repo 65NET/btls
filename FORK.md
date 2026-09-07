@@ -64,6 +64,12 @@ The submodule now points at **`65NET/boringssl`**, branch
 4a925794  Start migrating HPKE to use EVP_KEM                      (upstream head, 2026-09-04)
 ```
 
+`.gitmodules` deliberately carries **no `branch =` key**. The gitlink SHA above
+is the record of what we build; a `branch` key would let
+`git submodule update --remote` float BoringSSL off it silently, which is the
+one thing a pinned vendored dependency must not do. Moving the submodule is a
+commit, and that is the point.
+
 `v0.5.6` vendored `91a66a59b` (2025-11-04), ten months behind. The upgrade is
 what makes ML-DSA (`4a3cda40b`, 2026-04-23) and
 `SSL_CTX_set_grease_sigalgs_enabled` (`29e593e29`, 2026-06-29) available, which
@@ -114,6 +120,43 @@ ordering:
 
 `btls` keeps `SSL_CTX_set_aes_hw_override` and
 `SSL_CTX_set_preserve_tls13_cipher_list`, so both remain build requirements.
+
+#### The one place the adaptation changes semantics
+
+Before `c5cbc0f91` the AES-hardware override was **two bits read at handshake
+time**, so it could not overwrite anything and the setters were
+order-independent. Upstream now expresses the TLS 1.3 cipher order as a
+materialised list, built once at `SSL_CTX` creation — so for the override to
+reach the wire at all, the setter has to *recompute* that list. Recomputing can
+overwrite, and overwriting is order-dependent. That is a real behavioural
+difference and not a mechanical port.
+
+It matters because upstream expresses compliance policies the same way, by
+re-`Init`-ing the same list: an unguarded recompute would silently discard a
+`cnsa_202407` list if the override happened to be set afterwards. The old code
+honoured `compliance_policy == cnsa_202407 -> kCiphersCNSA` at handshake time
+regardless of call order.
+
+So the recompute is guarded. It runs only while the list is still the default:
+
+```c
+if (!preserve_tls13_cipher_list &&        // caller pinned the order
+    !tls13_cipher_list_explicit &&        // caller named the list outright
+    compliance_policy == ssl_compliance_policy_none) {
+  ssl_create_default_tls13_cipher_list(&tls13_cipher_list, aes_hw_override_value);
+}
+```
+
+`tls13_cipher_list_explicit` is a patch-owned bit set by
+`SSL{_CTX}_set1_tls13_ciphers`. Both of those setters are already modified by
+this patch, so the guard adds no new rebase surface. With it, a compliance
+policy and an explicit cipher list each win over the override **in either
+order**, which restores the order-independence the old code had.
+
+Nothing `wreq` exposes reaches `set_compliance_policy` or
+`set1_tls13_ciphers` today — but `btls` exposes `set_compliance_policy`
+publicly, so this is one caller away, which is why it is guarded rather than
+merely documented.
 
 ### 3. Two `btls` wrappers backported from upstream `main`
 
