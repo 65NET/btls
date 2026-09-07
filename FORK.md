@@ -19,6 +19,23 @@ deletion. `btls` itself is *pinned* at a release tag plus the rebase in this
 file. Those are different relationships and the branch names should not blur
 them.
 
+### Never amend a rev that has been pinned
+
+Downstream pins this fork by SHA. A pinned SHA must stay reachable from a ref
+here: amending or force-pushing the branch it came from orphans it, and the pin
+**keeps building anyway**, because GitHub serves dangling objects until it
+garbage-collects them. The breakage is silent now and total later.
+
+That is not hypothetical. While iterating on the first BoringSSL upgrade this
+branch was amended twice (`2ed48052` -> `ab064c35` -> `984d4452`), and the
+gateway's lockfile was left pinning the first of those -- a SHA no ref reached.
+It built fine, which is exactly the problem.
+
+So: while a change is still moving, **add commits instead of amending**, and pin
+the merge commit once its PR lands. Anyone maintaining this fork will pin
+something before they have finished iterating on it, so the rule matters more
+than it looks.
+
 ### Why not base on upstream `main`
 
 `main` is 99 commits ahead of `v0.5.6` and does some of this work already: it
